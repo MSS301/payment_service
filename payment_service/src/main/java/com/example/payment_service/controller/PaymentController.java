@@ -17,7 +17,6 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -33,52 +32,52 @@ public class PaymentController {
     private final PaymentService paymentService;
     
     @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
     @Operation(summary = "Create a new payment", description = "Create a new payment and get PayOS checkout link")
-    public ResponseEntity<ApiResponse<PaymentResponse>> createPayment(
+    public ApiResponse<PaymentResponse> createPayment(
             @Valid @RequestBody CreatePaymentRequest request) {
         
         log.info("Creating payment for user: {}", request.getUserId());
         PaymentResponse response = paymentService.createPayment(request);
         
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.<PaymentResponse>builder()
-                        .code(1000)
-                        .message("Payment created successfully")
-                        .result(response)
-                        .build());
+        return ApiResponse.<PaymentResponse>builder()
+                .code(1000)
+                .message("Payment created successfully")
+                .result(response)
+                .build();
     }
     
     @GetMapping("/{orderCode}")
     @Operation(summary = "Get payment by order code", description = "Retrieve payment details by order code")
-    public ResponseEntity<ApiResponse<PaymentResponse>> getPayment(
+    public ApiResponse<PaymentResponse> getPayment(
             @Parameter(description = "Order code of the payment") 
             @PathVariable Long orderCode) {
         
         log.info("Getting payment with order code: {}", orderCode);
         PaymentResponse response = paymentService.getPaymentByOrderCode(orderCode);
         
-        return ResponseEntity.ok(ApiResponse.<PaymentResponse>builder()
+        return ApiResponse.<PaymentResponse>builder()
                 .code(1000)
                 .message("Payment retrieved successfully")
                 .result(response)
-                .build());
+                .build();
     }
     
     @GetMapping("/{orderCode}/info")
     @Operation(summary = "Get payment link information from PayOS", 
                description = "Retrieve latest payment information from PayOS")
-    public ResponseEntity<ApiResponse<PaymentResponse>> getPaymentLinkInfo(
+    public ApiResponse<PaymentResponse> getPaymentLinkInfo(
             @Parameter(description = "Order code of the payment") 
             @PathVariable Long orderCode) {
         
         log.info("Getting payment link info from PayOS for order code: {}", orderCode);
         PaymentResponse response = paymentService.getPaymentLinkInfo(orderCode);
         
-        return ResponseEntity.ok(ApiResponse.<PaymentResponse>builder()
+        return ApiResponse.<PaymentResponse>builder()
                 .code(1000)
                 .message("Payment link info retrieved successfully")
                 .result(response)
-                .build());
+                .build();
     }
     
     @GetMapping("/user/{userId}")
