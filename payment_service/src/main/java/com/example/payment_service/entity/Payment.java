@@ -23,33 +23,30 @@ public class Payment {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
     
-    @Column(name = "order_code", unique = true, nullable = false)
-    private Long orderCode;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "order_id")
+    private PaymentOrder order;
     
-    @Column(name = "user_id", nullable = false)
-    private String userId;
+    @Column(name = "transaction_code", unique = true, nullable = false, length = 100)
+    private String transactionCode;
     
-    @Column(name = "amount", nullable = false, precision = 19, scale = 2)
+    @Column(name = "provider_transaction_id", length = 255)
+    private String providerTransactionId;
+    
+    @Column(name = "amount", nullable = false, precision = 15, scale = 2)
     private BigDecimal amount;
     
-    @Column(name = "description")
-    private String description;
+    @Column(name = "currency", length = 10)
+    private String currency = "VND";
     
-    @Enumerated(EnumType.STRING)
-    @Column(name = "status", nullable = false)
-    private PaymentStatus status;
+    @Column(name = "status", length = 50)
+    private String status = "PENDING"; // PENDING / PROCESSING / SUCCESS / FAILED / CANCELLED / REFUNDED
     
-    @Column(name = "payment_url")
-    private String paymentUrl;
+    @Column(name = "paid_at")
+    private LocalDateTime paidAt;
     
-    @Column(name = "reference_code")
-    private String referenceCode;
-    
-    @Column(name = "transaction_id")
-    private String transactionId;
-    
-    @Column(name = "wallet_transaction_id")
-    private String walletTransactionId;
+    @Column(name = "expired_at")
+    private LocalDateTime expiredAt;
     
     @CreationTimestamp
     @Column(name = "created_at")
@@ -58,10 +55,4 @@ public class Payment {
     @UpdateTimestamp
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
-    
-    @Column(name = "paid_at")
-    private LocalDateTime paidAt;
-    
-    @Column(name = "cancelled_at")
-    private LocalDateTime cancelledAt;
 }
