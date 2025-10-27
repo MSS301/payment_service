@@ -17,6 +17,7 @@ import java.util.List;
 public class PaymentLinkData {
     private String id;
     private Long orderCode;
+    private String checkoutUrl;
     private Integer amount;
     private Integer amountPaid;
     private Integer amountRemaining;

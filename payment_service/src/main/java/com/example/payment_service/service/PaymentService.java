@@ -4,10 +4,14 @@ import com.example.payment_service.dto.request.CreatePaymentRequest;
 import com.example.payment_service.dto.response.PaymentResponse;
 import com.example.payment_service.entity.Payment;
 import com.example.payment_service.entity.PaymentStatus;
-import com.example.payment_service.event.PaymentCreatedEvent;
-import com.example.payment_service.event.PaymentStatusChangedEvent;
+import com.example.payment_service.event.payload.PaymentCompletedEvent;
+import com.example.payment_service.event.payload.PaymentFailedEvent;
+import com.example.payment_service.event.payload.PaymentInitiatedEvent;
 import com.example.payment_service.exception.PaymentNotFoundException;
-import com.example.payment_service.payos.*;
+import com.example.payment_service.payos.CheckoutResponseData;
+import com.example.payment_service.payos.ItemData;
+import com.example.payment_service.payos.PayOS;
+import com.example.payment_service.payos.PaymentData;
 import com.example.payment_service.repository.PaymentRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -20,12 +24,15 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Random;
+import java.util.UUID;
 
+/**
+ * Service for handling payment operations
+ * Integrates with PayOS payment gateway and manages payment lifecycle
+ */
 @Service
 @RequiredArgsConstructor
 @Slf4j
-@Transactional
 public class PaymentService {
     
     private final PaymentRepository paymentRepository;
@@ -39,468 +46,309 @@ public class PaymentService {
     private String cancelUrl;
     
     /**
-     * Tạo payment mới và link thanh toán PayOS
+     * Creates a new payment and generates payment link via PayOS
+     * 
+     * @param request Payment creation request
+     * @return Payment response with payment URL
      */
+    @Transactional
     public PaymentResponse createPayment(CreatePaymentRequest request) {
         try {
-            // Generate unique order code
-            Long orderCode = generateOrderCode();
+            // Generate unique transaction code
+            String transactionCode = generateTransactionCode();
             
             // Create payment entity
-            Payment payment = Payment.builder()
-                    .orderCode(orderCode)
-                    .userId(request.getUserId())
-                    .amount(request.getAmount())
-                    .description(request.getDescription())
-                    .status(PaymentStatus.PENDING)
-                    .referenceCode(request.getReferenceCode())
-                    .build();
+            Payment payment = new Payment();
+            payment.setTransactionCode(transactionCode);
+            payment.setAmount(request.getAmount());
+            payment.setCurrency("VND");
+            payment.setStatus("PENDING");
+            
+            // Save payment first to get ID
+            payment = paymentRepository.save(payment);
             
             // Create PayOS payment data
-            ItemData item = ItemData.builder()
-                    .name(request.getDescription())
-                    .quantity(1)
-                    .price(request.getAmount().intValue())
-                    .build();
+            ItemData item = new ItemData();
+            item.setName(request.getDescription());
+            item.setQuantity(1);
+            item.setPrice(request.getAmount().intValue());
             
-            PaymentData paymentData = PaymentData.builder()
-                    .orderCode(orderCode)
-                    .amount(request.getAmount().intValue())
-                    .description(request.getDescription())
-                    .items(List.of(item))
-                    .returnUrl(returnUrl)
-                    .cancelUrl(cancelUrl)
-                    .build();
+            // Generate order code from payment ID
+            long orderCode = generateOrderCode(payment.getId());
+            
+            PaymentData paymentData = new PaymentData();
+            paymentData.setOrderCode(orderCode);
+            paymentData.setAmount(request.getAmount().intValue());
+            paymentData.setDescription(request.getDescription());
+            paymentData.setItems(List.of(item));
+            paymentData.setReturnUrl(returnUrl);
+            paymentData.setCancelUrl(cancelUrl);
             
             // Create payment link with PayOS
             CheckoutResponseData checkoutResponse = payOS.createPaymentLink(paymentData);
             
-            payment.setPaymentUrl(checkoutResponse.getCheckoutUrl());
-            payment.setTransactionId(checkoutResponse.getPaymentLinkId());
-            
-            // Save payment
+            // Update payment with PayOS response
+            payment.setProviderTransactionId(String.valueOf(orderCode));
             payment = paymentRepository.save(payment);
             
-            // Publish event
-            publishPaymentCreatedEvent(payment);
+            // Publish payment initiated event
+            publishPaymentInitiatedEvent(payment, request.getUserId());
             
-            log.info("Payment created successfully: orderCode={}, paymentUrl={}", 
-                    payment.getOrderCode(), payment.getPaymentUrl());
+            log.info("Payment created successfully with transaction code: {}", payment.getTransactionCode());
             
-            return mapToResponse(payment);
+            return mapToResponse(payment, checkoutResponse.getCheckoutUrl());
             
         } catch (Exception e) {
-            log.error("Error creating payment: ", e);
-            throw new RuntimeException("Failed to create payment: " + e.getMessage());
+            log.error("Error creating payment for user {}: ", request.getUserId(), e);
+            throw new RuntimeException("Failed to create payment: " + e.getMessage(), e);
         }
     }
     
     /**
-     * Lấy thông tin payment link từ PayOS
+     * Retrieves payment by transaction code
+     * 
+     * @param transactionCode Unique transaction code
+     * @return Payment response
      */
-    public PaymentResponse getPaymentLinkInfo(Long orderCode) {
-        try {
-            Payment payment = paymentRepository.findByOrderCode(orderCode)
-                    .orElseThrow(() -> new PaymentNotFoundException("Payment not found: " + orderCode));
-            
-            // Get payment link information from PayOS
-            PaymentLinkData paymentLinkData = payOS.getPaymentLinkInformation(orderCode);
-            
-            // Update payment status if changed
-            String payosStatus = paymentLinkData.getStatus();
-            PaymentStatus newStatus = mapPayOSStatus(payosStatus);
-            
-            if (!payment.getStatus().equals(newStatus)) {
-                updatePaymentStatus(payment, newStatus);
-            }
-            
-            log.info("Retrieved payment link info: orderCode={}, status={}", orderCode, payosStatus);
-            
-            return mapToResponse(payment);
-            
-        } catch (Exception e) {
-            log.error("Error getting payment link info for orderCode {}: ", orderCode, e);
-            throw new RuntimeException("Failed to get payment link info: " + e.getMessage());
-        }
+    @Transactional(readOnly = true)
+    public PaymentResponse getPaymentByTransactionCode(String transactionCode) {
+        Payment payment = paymentRepository.findByTransactionCode(transactionCode)
+                .orElseThrow(() -> new PaymentNotFoundException(
+                        "Payment not found with transaction code: " + transactionCode));
+        return mapToResponse(payment, null);
     }
     
     /**
-     * Hủy payment link
+     * Retrieves payment by provider transaction ID
+     * 
+     * @param providerTransactionId Provider's transaction ID
+     * @return Payment response
      */
-    public PaymentResponse cancelPayment(Long orderCode, String cancellationReason) {
-        try {
-            Payment payment = paymentRepository.findByOrderCode(orderCode)
-                    .orElseThrow(() -> new PaymentNotFoundException("Payment not found: " + orderCode));
-            
-            // Cancel payment link on PayOS
-            PaymentLinkData cancelledData = payOS.cancelPaymentLink(
-                    orderCode, 
-                    cancellationReason != null ? cancellationReason : "User cancelled"
-            );
-            
-            // Update payment status
-            updatePaymentStatus(payment, PaymentStatus.CANCELLED);
-            payment.setCancelledAt(LocalDateTime.now());
-            payment = paymentRepository.save(payment);
-            
-            log.info("Payment cancelled: orderCode={}, reason={}", orderCode, cancellationReason);
-            
-            return mapToResponse(payment);
-            
-        } catch (Exception e) {
-            log.error("Error cancelling payment for orderCode {}: ", orderCode, e);
-            throw new RuntimeException("Failed to cancel payment: " + e.getMessage());
-        }
+    @Transactional(readOnly = true)
+    public PaymentResponse getPaymentByProviderTransactionId(String providerTransactionId) {
+        Payment payment = paymentRepository.findByProviderTransactionId(providerTransactionId)
+                .orElseThrow(() -> new PaymentNotFoundException(
+                        "Payment not found with provider transaction ID: " + providerTransactionId));
+        return mapToResponse(payment, null);
     }
     
     /**
-     * Xác thực webhook URL
+     * Retrieves all payments for a specific order
+     * 
+     * @param orderId Order ID
+     * @return List of payment responses
      */
-    public String confirmWebhook(String webhookUrl) {
-        try {
-            String result = payOS.confirmWebhook(webhookUrl);
-            log.info("Webhook confirmed successfully: {}", webhookUrl);
-            return result;
-        } catch (Exception e) {
-            log.error("Error confirming webhook: ", e);
-            throw new RuntimeException("Failed to confirm webhook: " + e.getMessage());
-        }
+    @Transactional(readOnly = true)
+    public List<PaymentResponse> getPaymentsByOrderId(Long orderId) {
+        List<Payment> payments = paymentRepository.findByOrderId(orderId);
+        return payments.stream()
+                .map(payment -> mapToResponse(payment, null))
+                .toList();
     }
     
     /**
-     * Xử lý webhook từ PayOS sau khi thanh toán
+     * Retrieves payments by status with pagination
+     * 
+     * @param status Payment status
+     * @param pageable Pagination parameters
+     * @return Page of payment responses
      */
-    public WebhookData handlePaymentWebhook(Webhook webhookBody) {
-        try {
-            // Verify webhook data
-            WebhookData webhookData = payOS.verifyPaymentWebhookData(webhookBody);
-            
-            Long orderCode = webhookData.getOrderCode();
-            log.info("Processing webhook for orderCode: {}, code: {}", orderCode, webhookData.getCode());
-            
-            Payment payment = paymentRepository.findByOrderCode(orderCode)
-                    .orElseThrow(() -> new PaymentNotFoundException("Payment not found: " + orderCode));
-            
-            // Update payment based on webhook data
-            PaymentStatus newStatus = mapWebhookCode(webhookData.getCode());
-            
-            if (!payment.getStatus().equals(newStatus)) {
-                updatePaymentStatus(payment, newStatus);
-                
-                if (newStatus == PaymentStatus.PAID) {
-                    payment.setPaidAt(LocalDateTime.now());
-                    payment.setTransactionId(webhookData.getReference());
-                }
-            }
-            
-            payment = paymentRepository.save(payment);
-            
-            log.info("Webhook processed successfully: orderCode={}, newStatus={}", 
-                    orderCode, newStatus);
-            
-            return webhookData;
-            
-        } catch (Exception e) {
-            log.error("Error handling payment webhook: ", e);
-            throw new RuntimeException("Failed to handle payment webhook: " + e.getMessage());
-        }
+    @Transactional(readOnly = true)
+    public Page<PaymentResponse> getPaymentsByStatus(String status, Pageable pageable) {
+        Page<Payment> payments = paymentRepository.findByStatus(status, pageable);
+        return payments.map(payment -> mapToResponse(payment, null));
     }
     
     /**
-     * Lấy thông tin payment theo orderCode
-     */
-    public PaymentResponse getPaymentByOrderCode(Long orderCode) {
-        Payment payment = paymentRepository.findByOrderCode(orderCode)
-                .orElseThrow(() -> new PaymentNotFoundException("Payment not found: " + orderCode));
-        return mapToResponse(payment);
-    }
-    
-    /**
-     * Lấy danh sách payments của user
-     */
-    public List<PaymentResponse> getUserPayments(String userId) {
-        List<Payment> payments = paymentRepository.findByUserId(userId);
-        return payments.stream().map(this::mapToResponse).toList();
-    }
-    
-    /**
-     * Lấy danh sách payments của user có phân trang
-     */
-    public Page<PaymentResponse> getUserPayments(String userId, Pageable pageable) {
-        Page<Payment> payments = paymentRepository.findByUserId(userId, pageable);
-        return payments.map(this::mapToResponse);
-    }
-    
-    /**
-     * Cập nhật trạng thái payment
+     * Updates payment status and handles state transitions
+     * 
+     * @param transactionCode Transaction code
+     * @param newStatus New payment status
+     * @return Updated payment response
      */
     @Transactional
-    public PaymentResponse updatePaymentStatus(Long orderCode, PaymentStatus newStatus) {
-        Payment payment = paymentRepository.findByOrderCode(orderCode)
-                .orElseThrow(() -> new PaymentNotFoundException("Payment not found: " + orderCode));
+    public PaymentResponse updatePaymentStatus(String transactionCode, String newStatus) {
+        Payment payment = paymentRepository.findByTransactionCode(transactionCode)
+                .orElseThrow(() -> new PaymentNotFoundException(
+                        "Payment not found with transaction code: " + transactionCode));
         
-        updatePaymentStatus(payment, newStatus);
-        payment = paymentRepository.save(payment);
+        String oldStatus = payment.getStatus();
         
-        return mapToResponse(payment);
-    }
-    
-    // ==================== Private Helper Methods ====================
-    
-    private void updatePaymentStatus(Payment payment, PaymentStatus newStatus) {
-        PaymentStatus oldStatus = payment.getStatus();
+        // Validate status transition
+        if (oldStatus.equals(newStatus)) {
+            log.warn("Payment {} already in status {}", transactionCode, newStatus);
+            return mapToResponse(payment, null);
+        }
+        
+        // Update status
         payment.setStatus(newStatus);
         
         // Update timestamps based on status
-        switch (newStatus) {
-            case PAID -> payment.setPaidAt(LocalDateTime.now());
-            case CANCELLED -> payment.setCancelledAt(LocalDateTime.now());
-        }
-        
-        // Publish status change event
-        publishPaymentStatusChangedEvent(payment, oldStatus, newStatus);
-    }
-    
-    private void publishPaymentCreatedEvent(Payment payment) {
-        PaymentCreatedEvent event = PaymentCreatedEvent.builder()
-                .paymentId(payment.getId())
-                .orderCode(payment.getOrderCode())
-                .userId(payment.getUserId())
-                .amount(payment.getAmount())
-                .status(payment.getStatus().name())
-                .build();
-        
-        kafkaTemplate.send("payment-created", event);
-    }
-    
-    private void publishPaymentStatusChangedEvent(Payment payment, PaymentStatus oldStatus, PaymentStatus newStatus) {
-        PaymentStatusChangedEvent event = PaymentStatusChangedEvent.builder()
-                .paymentId(payment.getId())
-                .orderCode(payment.getOrderCode())
-                .userId(payment.getUserId())
-                .oldStatus(oldStatus.name())
-                .newStatus(newStatus.name())
-                .amount(payment.getAmount())
-                .build();
-        
-        kafkaTemplate.send("payment-status-changed", event);
-    }
-    
-    private Long generateOrderCode() {
-        Random random = new Random();
-        Long orderCode;
-        do {
-            orderCode = 1000000L + random.nextLong(9000000L);
-        } while (paymentRepository.findByOrderCode(orderCode).isPresent());
-        return orderCode;
-    }
-    
-    private PaymentStatus mapPayOSStatus(String payosStatus) {
-        return switch (payosStatus.toUpperCase()) {
-            case "PAID" -> PaymentStatus.PAID;
-            case "PENDING" -> PaymentStatus.PENDING;
-            case "CANCELLED" -> PaymentStatus.CANCELLED;
-            case "EXPIRED" -> PaymentStatus.EXPIRED;
-            default -> PaymentStatus.FAILED;
-        };
-    }
-    
-    private PaymentStatus mapWebhookCode(String code) {
-        return switch (code) {
-            case "00" -> PaymentStatus.PAID;
-            case "01" -> PaymentStatus.CANCELLED;
-            default -> PaymentStatus.FAILED;
-        };
-    }
-    
-    private PaymentResponse mapToResponse(Payment payment) {
-        return PaymentResponse.builder()
-                .id(payment.getId())
-                .orderCode(payment.getOrderCode())
-                .userId(payment.getUserId())
-                .amount(payment.getAmount())
-                .description(payment.getDescription())
-                .status(payment.getStatus())
-                .paymentUrl(payment.getPaymentUrl())
-                .referenceCode(payment.getReferenceCode())
-                .transactionId(payment.getTransactionId())
-                .createdAt(payment.getCreatedAt())
-                .updatedAt(payment.getUpdatedAt())
-                .paidAt(payment.getPaidAt())
-                .cancelledAt(payment.getCancelledAt())
-                .build();
-    }
-}
-
-@Service
-@RequiredArgsConstructor
-@Slf4j
-@Transactional
-public class PaymentService {
-    
-    private final PaymentRepository paymentRepository;
-    private final PayOS payOS;
-    private final KafkaTemplate<String, Object> kafkaTemplate;
-    
-    @Value("${payos.return-url}")
-    private String returnUrl;
-    
-    @Value("${payos.cancel-url}")
-    private String cancelUrl;
-    
-    public PaymentResponse createPayment(CreatePaymentRequest request) {
-        try {
-            // Generate unique order code
-            Long orderCode = generateOrderCode();
-            
-            // Create payment entity
-            Payment payment = Payment.builder()
-                    .orderCode(orderCode)
-                    .userId(request.getUserId())
-                    .amount(request.getAmount())
-                    .description(request.getDescription())
-                    .status(PaymentStatus.PENDING)
-                    .referenceCode(request.getReferenceCode())
-                    .build();
-            
-            // Create PayOS payment data
-            ItemData item = ItemData.builder()
-                    .name(request.getDescription())
-                    .quantity(1)
-                    .price(request.getAmount().intValue())
-                    .build();
-            
-            PaymentData paymentData = PaymentData.builder()
-                    .orderCode(orderCode)
-                    .amount(request.getAmount().intValue())
-                    .description(request.getDescription())
-                    .items(List.of(item))
-                    .returnUrl(returnUrl)
-                    .cancelUrl(cancelUrl)
-                    .build();
-            
-            // Create payment link with PayOS
-            vn.payos.type.CheckoutResponseData checkoutResponse = payOS.createPaymentLink(paymentData);
-            payment.setPaymentUrl(checkoutResponse.getCheckoutUrl());
-            
-            // Save payment
-            payment = paymentRepository.save(payment);
-            
-            // Publish event
-            PaymentCreatedEvent event = PaymentCreatedEvent.builder()
-                    .paymentId(payment.getId())
-                    .orderCode(payment.getOrderCode())
-                    .userId(payment.getUserId())
-                    .amount(payment.getAmount())
-                    .status(payment.getStatus().name())
-                    .build();
-            
-            kafkaTemplate.send("payment-created", event);
-            
-            log.info("Payment created successfully: {}", payment.getOrderCode());
-            
-            return mapToResponse(payment);
-            
-        } catch (Exception e) {
-            log.error("Error creating payment: ", e);
-            throw new RuntimeException("Failed to create payment: " + e.getMessage());
-        }
-    }
-    
-    public PaymentResponse getPaymentByOrderCode(Long orderCode) {
-        Payment payment = paymentRepository.findByOrderCode(orderCode)
-                .orElseThrow(() -> new PaymentNotFoundException("Payment not found with order code: " + orderCode));
-        return mapToResponse(payment);
-    }
-    
-    public List<PaymentResponse> getUserPayments(String userId) {
-        List<Payment> payments = paymentRepository.findByUserId(userId);
-        return payments.stream().map(this::mapToResponse).toList();
-    }
-    
-    public Page<PaymentResponse> getUserPayments(String userId, Pageable pageable) {
-        Page<Payment> payments = paymentRepository.findByUserId(userId, pageable);
-        return payments.map(this::mapToResponse);
-    }
-    
-    public PaymentResponse updatePaymentStatus(Long orderCode, PaymentStatus newStatus) {
-        Payment payment = paymentRepository.findByOrderCode(orderCode)
-                .orElseThrow(() -> new PaymentNotFoundException("Payment not found with order code: " + orderCode));
-        
-        PaymentStatus oldStatus = payment.getStatus();
-        payment.setStatus(newStatus);
-        
-        // Update timestamps based on status
-        switch (newStatus) {
-            case PAID -> payment.setPaidAt(LocalDateTime.now());
-            case CANCELLED -> payment.setCancelledAt(LocalDateTime.now());
+        if ("SUCCESS".equals(newStatus)) {
+            payment.setPaidAt(LocalDateTime.now());
         }
         
         payment = paymentRepository.save(payment);
         
-        // Publish status change event
-        PaymentStatusChangedEvent event = PaymentStatusChangedEvent.builder()
-                .paymentId(payment.getId())
-                .orderCode(payment.getOrderCode())
-                .userId(payment.getUserId())
-                .oldStatus(oldStatus.name())
-                .newStatus(newStatus.name())
-                .amount(payment.getAmount())
-                .build();
+        // Publish status change events
+        publishStatusChangeEvent(payment, oldStatus, newStatus);
         
-        kafkaTemplate.send("payment-status-changed", event);
+        log.info("Payment status updated: {} from {} to {}", transactionCode, oldStatus, newStatus);
         
-        log.info("Payment status updated: {} from {} to {}", orderCode, oldStatus, newStatus);
-        
-        return mapToResponse(payment);
+        return mapToResponse(payment, null);
     }
     
-    public void handlePaymentWebhook(Long orderCode, String status) {
+    /**
+     * Handles payment webhook from PayOS
+     * 
+     * @param providerTransactionId Provider transaction ID
+     * @param status Payment status from provider
+     */
+    @Transactional
+    public void handlePaymentWebhook(String providerTransactionId, String status) {
         try {
-            Payment payment = paymentRepository.findByOrderCode(orderCode)
-                    .orElseThrow(() -> new PaymentNotFoundException("Payment not found with order code: " + orderCode));
+            Payment payment = paymentRepository.findByProviderTransactionId(providerTransactionId)
+                    .orElseThrow(() -> new PaymentNotFoundException(
+                            "Payment not found with provider transaction ID: " + providerTransactionId));
             
-            PaymentStatus newStatus = switch (status.toLowerCase()) {
-                case "paid" -> PaymentStatus.PAID;
-                case "cancelled" -> PaymentStatus.CANCELLED;
-                case "expired" -> PaymentStatus.EXPIRED;
-                default -> PaymentStatus.FAILED;
-            };
+            String newStatus = mapProviderStatus(status);
             
             if (!payment.getStatus().equals(newStatus)) {
-                updatePaymentStatus(orderCode, newStatus);
+                updatePaymentStatus(payment.getTransactionCode(), newStatus);
             }
             
         } catch (Exception e) {
-            log.error("Error handling payment webhook for order code {}: ", orderCode, e);
-            throw new RuntimeException("Failed to handle payment webhook: " + e.getMessage());
+            log.error("Error handling payment webhook for provider transaction ID {}: ", 
+                    providerTransactionId, e);
+            throw new RuntimeException("Failed to handle payment webhook: " + e.getMessage(), e);
         }
     }
     
-    private Long generateOrderCode() {
-        Random random = new Random();
-        Long orderCode;
-        do {
-            orderCode = 1000000L + random.nextLong(9000000L);
-        } while (paymentRepository.findByOrderCode(orderCode).isPresent());
-        return orderCode;
+    /**
+     * Maps provider status to internal status
+     * 
+     * @param providerStatus Status from payment provider
+     * @return Internal payment status
+     */
+    private String mapProviderStatus(String providerStatus) {
+        return switch (providerStatus.toUpperCase()) {
+            case "PAID", "SUCCESS", "COMPLETED" -> "SUCCESS";
+            case "CANCELLED", "CANCELED" -> "CANCELLED";
+            case "EXPIRED" -> "FAILED";
+            case "FAILED", "REJECTED" -> "FAILED";
+            default -> "PENDING";
+        };
     }
     
-    private PaymentResponse mapToResponse(Payment payment) {
-        return PaymentResponse.builder()
-                .id(payment.getId())
-                .orderCode(payment.getOrderCode())
-                .userId(payment.getUserId())
-                .amount(payment.getAmount())
-                .description(payment.getDescription())
-                .status(payment.getStatus())
-                .paymentUrl(payment.getPaymentUrl())
-                .referenceCode(payment.getReferenceCode())
-                .transactionId(payment.getTransactionId())
-                .createdAt(payment.getCreatedAt())
-                .updatedAt(payment.getUpdatedAt())
-                .paidAt(payment.getPaidAt())
-                .cancelledAt(payment.getCancelledAt())
-                .build();
+    /**
+     * Generates a unique transaction code
+     * 
+     * @return Unique transaction code
+     */
+    private String generateTransactionCode() {
+        String code;
+        do {
+            code = "PAY-" + UUID.randomUUID().toString().substring(0, 13).toUpperCase();
+        } while (paymentRepository.findByTransactionCode(code).isPresent());
+        return code;
+    }
+    
+    /**
+     * Generates order code from payment ID
+     * 
+     * @param paymentId Payment ID
+     * @return Order code
+     */
+    private long generateOrderCode(Long paymentId) {
+        // Generate a 7-digit order code based on payment ID and timestamp
+        return (paymentId * 1000 + System.currentTimeMillis() % 1000) % 10000000;
+    }
+    
+    /**
+     * Publishes payment initiated event to Kafka
+     * 
+     * @param payment Payment entity
+     * @param userId User ID from request
+     */
+    private void publishPaymentInitiatedEvent(Payment payment, String userId) {
+        try {
+            PaymentInitiatedEvent event = new PaymentInitiatedEvent();
+            event.setPaymentId(payment.getId());
+            event.setOrderId(payment.getOrder() != null ? payment.getOrder().getId() : null);
+            event.setUserId(userId != null ? Long.parseLong(userId) : null);
+            event.setAmount(payment.getAmount());
+            event.setTimestamp(LocalDateTime.now());
+            
+            kafkaTemplate.send("payment-initiated", event);
+            log.debug("Published payment initiated event for payment ID: {}", payment.getId());
+        } catch (Exception e) {
+            log.error("Failed to publish payment initiated event for payment ID: {}", 
+                    payment.getId(), e);
+        }
+    }
+    
+    /**
+     * Publishes status change events to Kafka
+     * 
+     * @param payment Payment entity
+     * @param oldStatus Old status
+     * @param newStatus New status
+     */
+    private void publishStatusChangeEvent(Payment payment, String oldStatus, String newStatus) {
+        try {
+            if ("SUCCESS".equals(newStatus)) {
+                PaymentCompletedEvent event = new PaymentCompletedEvent();
+                event.setPaymentId(payment.getId());
+                event.setOrderId(payment.getOrder() != null ? payment.getOrder().getId() : null);
+                event.setUserId(payment.getOrder() != null && payment.getOrder().getUserId() != null 
+                        ? payment.getOrder().getUserId() : null);
+                event.setAmount(payment.getAmount());
+                event.setTimestamp(LocalDateTime.now());
+                
+                kafkaTemplate.send("payment-completed", event);
+                log.debug("Published payment completed event for payment ID: {}", payment.getId());
+                
+            } else if ("FAILED".equals(newStatus) || "CANCELLED".equals(newStatus)) {
+                PaymentFailedEvent event = new PaymentFailedEvent();
+                event.setPaymentId(payment.getId());
+                event.setOrderId(payment.getOrder() != null ? payment.getOrder().getId() : null);
+                event.setUserId(payment.getOrder() != null && payment.getOrder().getUserId() != null 
+                        ? payment.getOrder().getUserId() : null);
+                event.setTimestamp(LocalDateTime.now());
+                
+                kafkaTemplate.send("payment-failed", event);
+                log.debug("Published payment failed event for payment ID: {}", payment.getId());
+            }
+        } catch (Exception e) {
+            log.error("Failed to publish status change event for payment ID: {}", 
+                    payment.getId(), e);
+        }
+    }
+    
+    /**
+     * Maps Payment entity to PaymentResponse DTO
+     * 
+     * @param payment Payment entity
+     * @param paymentUrl Optional payment URL
+     * @return Payment response DTO
+     */
+    private PaymentResponse mapToResponse(Payment payment, String paymentUrl) {
+        PaymentResponse response = new PaymentResponse();
+        response.setId(payment.getId());
+        response.setOrderCode(payment.getProviderTransactionId() != null 
+                ? Long.parseLong(payment.getProviderTransactionId()) : null);
+        response.setUserId(payment.getOrder() != null && payment.getOrder().getUserId() != null 
+                ? String.valueOf(payment.getOrder().getUserId()) : null);
+        response.setAmount(payment.getAmount());
+        response.setDescription(null); // Not stored in Payment entity
+        response.setStatus(PaymentStatus.valueOf(payment.getStatus()));
+        response.setPaymentUrl(paymentUrl);
+        response.setReferenceCode(payment.getTransactionCode());
+        response.setTransactionId(payment.getProviderTransactionId());
+        response.setCreatedAt(payment.getCreatedAt());
+        response.setUpdatedAt(payment.getUpdatedAt());
+        response.setPaidAt(payment.getPaidAt());
+        response.setCancelledAt(null); // Not stored in Payment entity
+        return response;
     }
 }

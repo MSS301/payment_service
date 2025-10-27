@@ -1,5 +1,6 @@
-package com.example.payment_service.event;
+package com.example.payment_service.dto.request;
 
+import jakarta.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -11,10 +12,8 @@ import java.math.BigDecimal;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class PaymentCreatedEvent {
-    private Long paymentId;
-    private Long orderCode;
-    private String userId;
+public class ValidatePromotionRequest {
+    
+    @NotNull(message = "Amount is required")
     private BigDecimal amount;
-    private String status;
 }
