@@ -178,8 +178,8 @@ public class PaymentWebhookService {
                     order != null ? order.getId() : null,
                     order != null ? order.getUserId() : null,
                     payment.getAmount(),
-                    credits,
-                    bonusCredits
+                    credits.toString(),
+                    bonusCredits.toString()
             );
         } catch (Exception e) {
             log.error("Failed to publish payment completed event: {}", e.getMessage());

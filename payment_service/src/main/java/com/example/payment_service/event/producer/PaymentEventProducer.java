@@ -76,22 +76,21 @@ public class PaymentEventProducer {
         log.info("Published payment.processing event for payment: {}", paymentId);
     }
     
-    public void publishPaymentCompleted(Long paymentId, Long orderId, Long userId, BigDecimal amount, 
-                                       Integer credits, Integer bonusCredits) {
+    public void publishPaymentCompleted(Long paymentId,Long orderId, Long userId, BigDecimal amount,
+                                       String currency, String paymentMethod) {
         PaymentCompletedEvent event = PaymentCompletedEvent.builder()
                 .paymentId(paymentId)
                 .orderId(orderId)
                 .userId(userId)
                 .amount(amount)
-                .credits(credits)
-                .bonusCredits(bonusCredits)
-                .totalCredits(credits + bonusCredits)
+                .currency(currency)
+                .paymentMethod(paymentMethod)
                 .timestamp(LocalDateTime.now())
                 .build();
         
         kafkaTemplate.send("payment.completed", event);
-        log.info("Published payment.completed event for payment: {} (credits: {}, bonus: {})", 
-                paymentId, credits, bonusCredits);
+        log.info("Published payment.completed event for payment: {} - user: {}, amount: {} {}", 
+                paymentId, userId, amount, currency);
     }
     
     public void publishPaymentFailed(Long paymentId, Long orderId, Long userId, String reason) {
@@ -122,17 +121,17 @@ public class PaymentEventProducer {
     
     // ============ Bonus & Promotion Events ============
     
-    public void publishBonusGranted(Long userId, Integer credits, String reason, Long orderId) {
+    public void publishBonusGranted(String userId, BigDecimal amount, String reason, String referenceId) {
         BonusGrantedEvent event = BonusGrantedEvent.builder()
                 .userId(userId)
-                .credits(credits)
+                .amount(amount)
                 .reason(reason)
-                .orderId(orderId)
+                .referenceId(referenceId)
                 .timestamp(LocalDateTime.now())
                 .build();
         
         kafkaTemplate.send("payment.bonus_granted", event);
-        log.info("Published payment.bonus_granted event for user: {} ({} credits)", userId, credits);
+        log.info("Published payment.bonus_granted event for user: {} (amount: {})", userId, amount);
     }
     
     public void publishPromotionUsed(Long userId, String promotionCode, BigDecimal discount) {

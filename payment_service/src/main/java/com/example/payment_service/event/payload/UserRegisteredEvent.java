@@ -14,7 +14,7 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 public class UserRegisteredEvent {
     @JsonProperty("user_id")
-    private Long userId;
+    private String userId;
     
     @JsonProperty("username")
     private String username;
