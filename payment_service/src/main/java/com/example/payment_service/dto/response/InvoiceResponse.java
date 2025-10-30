@@ -16,7 +16,7 @@ public class InvoiceResponse {
     
     private Long id;
     private String invoiceNumber;
-    private Long userId;
+    private String userId;
     private Long paymentId;
     private String transactionCode;
     

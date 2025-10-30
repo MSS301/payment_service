@@ -28,7 +28,7 @@ public class PromotionUsage {
     private Promotion promotion;
     
     @Column(name = "user_id", nullable = false)
-    private Long userId;
+    private String userId;
     
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "order_id")

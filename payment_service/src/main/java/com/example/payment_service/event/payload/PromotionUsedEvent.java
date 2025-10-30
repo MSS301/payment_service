@@ -15,7 +15,7 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 public class PromotionUsedEvent {
     @JsonProperty("user_id")
-    private Long userId;
+    private String userId;
     
     @JsonProperty("promotion_code")
     private String promotionCode;

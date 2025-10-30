@@ -25,7 +25,7 @@ public class PaymentEventProducer {
     
     // ============ Order Events ============
     
-    public void publishOrderCreated(Long orderId, Long userId, BigDecimal amount, Long packageId) {
+    public void publishOrderCreated(Long orderId, String userId, BigDecimal amount, Long packageId) {
         OrderCreatedEvent event = OrderCreatedEvent.builder()
                 .orderId(orderId)
                 .userId(userId)
@@ -38,7 +38,7 @@ public class PaymentEventProducer {
         log.info("Published payment.order_created event for order: {}", orderId);
     }
     
-    public void publishOrderExpired(Long orderId, Long userId) {
+    public void publishOrderExpired(Long orderId, String userId) {
         OrderExpiredEvent event = OrderExpiredEvent.builder()
                 .orderId(orderId)
                 .userId(userId)
@@ -51,7 +51,7 @@ public class PaymentEventProducer {
     
     // ============ Payment Events ============
     
-    public void publishPaymentInitiated(Long paymentId, Long orderId, Long userId, BigDecimal amount, Integer credits) {
+    public void publishPaymentInitiated(Long paymentId, Long orderId, String userId, BigDecimal amount, Integer credits) {
         PaymentInitiatedEvent event = PaymentInitiatedEvent.builder()
                 .paymentId(paymentId)
                 .orderId(orderId)
@@ -76,7 +76,7 @@ public class PaymentEventProducer {
         log.info("Published payment.processing event for payment: {}", paymentId);
     }
     
-    public void publishPaymentCompleted(Long paymentId,Long orderId, Long userId, BigDecimal amount,
+    public void publishPaymentCompleted(Long paymentId,Long orderId, String userId, BigDecimal amount,
                                        String currency, String paymentMethod) {
         PaymentCompletedEvent event = PaymentCompletedEvent.builder()
                 .paymentId(paymentId)
@@ -93,7 +93,7 @@ public class PaymentEventProducer {
                 paymentId, userId, amount, currency);
     }
     
-    public void publishPaymentFailed(Long paymentId, Long orderId, Long userId, String reason) {
+    public void publishPaymentFailed(Long paymentId, Long orderId, String userId, String reason) {
         PaymentFailedEvent event = PaymentFailedEvent.builder()
                 .paymentId(paymentId)
                 .orderId(orderId)
@@ -134,7 +134,7 @@ public class PaymentEventProducer {
         log.info("Published payment.bonus_granted event for user: {} (amount: {})", userId, amount);
     }
     
-    public void publishPromotionUsed(Long userId, String promotionCode, BigDecimal discount) {
+    public void publishPromotionUsed(String userId, String promotionCode, BigDecimal discount) {
         PromotionUsedEvent event = PromotionUsedEvent.builder()
                 .userId(userId)
                 .promotionCode(promotionCode)

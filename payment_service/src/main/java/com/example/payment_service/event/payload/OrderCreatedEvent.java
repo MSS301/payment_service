@@ -18,7 +18,7 @@ public class OrderCreatedEvent {
     private Long orderId;
     
     @JsonProperty("user_id")
-    private Long userId;
+    private String userId;
     
     @JsonProperty("amount")
     private BigDecimal amount;

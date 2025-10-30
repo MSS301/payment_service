@@ -33,6 +33,9 @@ public class OrderService {
     private final PayOS payOS;
     private final PaymentEventProducer eventPublisher;
     
+    @Value("${payos.enabled:true}")
+    private boolean payosEnabled;
+
     @Value("${payos.return-url:http://localhost:8084/payment/return}")
     private String returnUrl;
     
@@ -84,7 +87,7 @@ public class OrderService {
                     .finalAmount(finalAmount)
                     .currency("VND")
                     .status("PENDING")
-                    .description("Purchase " + pkg.getName() + " package")
+                    .description("Purchase " + pkg.getName())
                     .build();
             
             order = orderRepository.save(order);
@@ -102,28 +105,47 @@ public class OrderService {
                     .expiredAt(LocalDateTime.now().plusMinutes(15))
                     .build();
             
-            // 6. Create PayOS payment link if using PayOS
+            // 6. Create PayOS payment link if enabled
             String paymentUrl = null;
-                ItemData item = ItemData.builder()
-                        .name(pkg.getName() + " - " + pkg.getCredits() + " credits")
-                        .quantity(1)
-                        .price(finalAmount.intValue())
-                        .build();
-                
-                PaymentData paymentData = PaymentData.builder()
-                        .orderCode(payOSOrderCode)
-                        .amount(finalAmount.intValue())
-                        .description(order.getDescription())
-                        .items(List.of(item))
-                        .returnUrl(returnUrl)
-                        .cancelUrl(cancelUrl)
-                        .build();
-                
-                CheckoutResponseData checkoutResponse = payOS.createPaymentLink(paymentData);
-                paymentUrl = checkoutResponse.getCheckoutUrl();
-                payment.setProviderTransactionId(checkoutResponse.getPaymentLinkId());
+            if (payosEnabled) {
+                try {
+                    ItemData item = ItemData.builder()
+                            .name(pkg.getName() + " - " + pkg.getCredits() + " credits")
+                            .quantity(1)
+                            .price(finalAmount.intValue())
+                            .build();
 
-            
+                    // PayOS requires description to be max 25 characters
+                    String payosDescription = order.getDescription();
+                    if (payosDescription.length() > 25) {
+                        payosDescription = payosDescription.substring(0, 25);
+                    }
+
+                    PaymentData paymentData = PaymentData.builder()
+                            .orderCode(payOSOrderCode)
+                            .amount(finalAmount.intValue())
+                            .description(payosDescription)
+                            .items(List.of(item))
+                            .returnUrl(returnUrl)
+                            .cancelUrl(cancelUrl)
+                            .build();
+
+                    CheckoutResponseData checkoutResponse = payOS.createPaymentLink(paymentData);
+                    paymentUrl = checkoutResponse.getCheckoutUrl();
+                    payment.setProviderTransactionId(checkoutResponse.getPaymentLinkId());
+
+                    log.info("PayOS payment link created successfully: orderCode={}, paymentLinkId={}",
+                            orderCode, checkoutResponse.getPaymentLinkId());
+                } catch (Exception e) {
+                    log.error("Failed to create PayOS payment link, order will be created without payment URL: {}",
+                            e.getMessage());
+                    // Order and payment record will still be saved, but without PayOS payment link
+                    // User can retry payment later or use alternative payment method
+                }
+            } else {
+                log.info("PayOS integration is disabled. Order created without payment link: orderCode={}", orderCode);
+            }
+
             payment = paymentRepository.save(payment);
             
             // 7. Record promotion usage if applied
@@ -197,7 +219,7 @@ public class OrderService {
     /**
      * Get user's orders with optional status filter
      */
-    public Page<OrderResponse> getMyOrders(Long userId, String status, Pageable pageable) {
+    public Page<OrderResponse> getMyOrders(String userId, String status, Pageable pageable) {
         Page<PaymentOrder> orders;
         
         if (status != null && !status.isEmpty()) {
@@ -318,7 +340,7 @@ public class OrderService {
         }
     }
     
-    private void publishPromotionUsedEvent(Long userId, String promotionCode, BigDecimal discount) {
+    private void publishPromotionUsedEvent(String userId, String promotionCode, BigDecimal discount) {
         try {
             eventPublisher.publishPromotionUsed(userId, promotionCode, discount);
         } catch (Exception e) {

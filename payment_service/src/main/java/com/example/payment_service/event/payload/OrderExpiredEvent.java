@@ -17,7 +17,7 @@ public class OrderExpiredEvent {
     private Long orderId;
     
     @JsonProperty("user_id")
-    private Long userId;
+    private String userId;
     
     @JsonProperty("timestamp")
     private LocalDateTime timestamp;

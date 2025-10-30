@@ -33,10 +33,10 @@ public class OrderController {
     public ResponseEntity<OrderResponse> createOrder(
             @Valid @RequestBody CreateOrderRequest request,
             @Parameter(description = "User ID from authentication token")
-            @RequestHeader(value = "X-User-ID", required = false) Long userId
+            @RequestHeader(value = "X-User-ID", required = false) String userId
     ) {
         log.info("Creating order for user: {}, package: {}", userId, request.getPackageId());
-        request.setUserId(userId != null ? userId : 1L); // TODO: Get from JWT auth context
+        request.setUserId(userId); // TODO: Get from JWT auth context
         
         OrderResponse response = orderService.createOrder(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
@@ -65,9 +65,8 @@ public class OrderController {
             @Parameter(description = "Page size")
             @RequestParam(defaultValue = "10") int size,
             @Parameter(description = "User ID from authentication token")
-            @RequestHeader(value = "X-User-ID", required = false) Long userId
+            @RequestHeader(value = "X-User-ID", required = false) String userId
     ) {
-        userId = userId != null ? userId : 1L; // TODO: Get from JWT auth context
         log.info("Getting orders for user: {}, status: {}, page: {}, size: {}", userId, status, page, size);
         
         Page<OrderResponse> orders = orderService.getMyOrders(

@@ -6,6 +6,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -30,7 +32,7 @@ public class Invoice {
     private String invoiceNumber;
     
     @Column(name = "user_id", nullable = false)
-    private Long userId;
+    private String userId;
     
     @Column(name = "amount", nullable = false, precision = 15, scale = 2)
     private BigDecimal amount;
@@ -46,10 +48,11 @@ public class Invoice {
     
     @Column(name = "description", columnDefinition = "TEXT")
     private String description;
-    
+
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "metadata", columnDefinition = "jsonb")
     private String metadata;
-    
+
     @CreationTimestamp
     @Column(name = "created_at")
     private LocalDateTime createdAt;

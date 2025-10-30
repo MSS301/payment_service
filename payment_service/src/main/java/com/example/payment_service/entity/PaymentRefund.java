@@ -6,6 +6,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -42,11 +44,12 @@ public class PaymentRefund {
     private String status = "PENDING"; // PENDING / PROCESSING / SUCCESS / FAILED
     
     @Column(name = "initiated_by")
-    private Long initiatedBy; // admin user_id
+    private String initiatedBy; // admin user_id
     
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "metadata", columnDefinition = "jsonb")
     private String metadata;
-    
+
     @Column(name = "processed_at")
     private LocalDateTime processedAt;
     

@@ -16,7 +16,7 @@ public class OrderResponse {
     
     private Long orderId;
     private String orderCode;
-    private Long userId;
+    private String userId;
     private Long packageId;
     private String packageName;
     private Integer credits;

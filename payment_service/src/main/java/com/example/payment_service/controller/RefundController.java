@@ -39,9 +39,8 @@ public class RefundController {
             @PathVariable Long paymentId,
             @Valid @RequestBody RefundRequest request,
             @Parameter(description = "Admin ID from authentication token")
-            @RequestHeader(value = "X-Admin-ID", required = false) Long adminId
+            @RequestHeader(value = "X-Admin-ID", required = false) String adminId
     ) {
-        adminId = adminId != null ? adminId : 1L; // TODO: Get from JWT auth context + verify admin role
         log.info("Admin {} creating refund for payment {}", adminId, paymentId);
         
         // TODO: Get transaction code from payment ID

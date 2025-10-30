@@ -31,9 +31,8 @@ public class InvoiceController {
     @Operation(summary = "Get my invoices", description = "Retrieve all invoices for the authenticated user")
     public ResponseEntity<List<InvoiceResponse>> getMyInvoices(
             @Parameter(description = "User ID from authentication token")
-            @RequestHeader(value = "X-User-ID", required = false) Long userId
+            @RequestHeader(value = "X-User-ID", required = false) String userId
     ) {
-        userId = userId != null ? userId : 1L; // TODO: Get from JWT auth context
         log.info("Getting invoices for user: {}", userId);
         
         List<InvoiceResponse> invoices = invoiceService.getMyInvoices(userId);
@@ -46,9 +45,8 @@ public class InvoiceController {
             @Parameter(description = "Invoice number")
             @PathVariable String invoiceNumber,
             @Parameter(description = "User ID from authentication token")
-            @RequestHeader(value = "X-User-ID", required = false) Long userId
+            @RequestHeader(value = "X-User-ID", required = false) String userId
     ) {
-        userId = userId != null ? userId : 1L; // TODO: Get from JWT auth context
         log.info("Getting invoice {} for user {}", invoiceNumber, userId);
         
         InvoiceResponse invoice = invoiceService.getInvoiceByNumber(invoiceNumber, userId);

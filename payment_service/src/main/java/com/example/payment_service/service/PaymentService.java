@@ -275,7 +275,7 @@ public class PaymentService {
             PaymentInitiatedEvent event = new PaymentInitiatedEvent();
             event.setPaymentId(payment.getId());
             event.setOrderId(payment.getOrder() != null ? payment.getOrder().getId() : null);
-            event.setUserId(userId != null ? Long.parseLong(userId) : null);
+            event.setUserId(userId);
             event.setAmount(payment.getAmount());
             event.setTimestamp(LocalDateTime.now());
             

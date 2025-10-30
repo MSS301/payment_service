@@ -11,6 +11,6 @@ import java.util.Optional;
 @Repository
 public interface PaymentOrderRepository extends JpaRepository<PaymentOrder, Long> {
     Optional<PaymentOrder> findByOrderCode(String orderCode);
-    Page<PaymentOrder> findByUserId(Long userId, Pageable pageable);
-    Page<PaymentOrder> findByUserIdAndStatus(Long userId, String status, Pageable pageable);
+    Page<PaymentOrder> findByUserId(String userId, Pageable pageable);
+    Page<PaymentOrder> findByUserIdAndStatus(String userId, String status, Pageable pageable);
 }

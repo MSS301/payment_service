@@ -60,7 +60,7 @@ public class InvoiceService {
     /**
      * Get user's invoices
      */
-    public List<InvoiceResponse> getMyInvoices(Long userId) {
+    public List<InvoiceResponse> getMyInvoices(String userId) {
         List<Invoice> invoices = invoiceRepository.findByUserId(userId);
         return invoices.stream()
                 .map(this::mapToResponse)
@@ -70,7 +70,7 @@ public class InvoiceService {
     /**
      * Get invoice by number
      */
-    public InvoiceResponse getInvoiceByNumber(String invoiceNumber, Long userId) {
+    public InvoiceResponse getInvoiceByNumber(String invoiceNumber, String userId) {
         Invoice invoice = invoiceRepository.findByInvoiceNumber(invoiceNumber)
                 .orElseThrow(() -> new RuntimeException("Invoice not found"));
         

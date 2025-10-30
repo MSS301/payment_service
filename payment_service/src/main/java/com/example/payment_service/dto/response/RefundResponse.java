@@ -23,7 +23,7 @@ public class RefundResponse {
     private String reason;
     private String status;
     
-    private Long initiatedBy;
+    private String initiatedBy;
     
     private LocalDateTime processedAt;
     private LocalDateTime createdAt;

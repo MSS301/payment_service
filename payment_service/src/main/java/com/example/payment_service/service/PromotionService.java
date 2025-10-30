@@ -26,7 +26,7 @@ public class PromotionService {
     /**
      * Validate and apply promotion code to an order
      */
-    public BigDecimal applyPromotion(String promotionCode, Long userId, BigDecimal orderAmount) {
+    public BigDecimal applyPromotion(String promotionCode, String userId, BigDecimal orderAmount) {
         Promotion promotion = promotionRepository.findByCode(promotionCode)
                 .orElseThrow(() -> new RuntimeException("Promotion not found: " + promotionCode));
         
@@ -45,7 +45,7 @@ public class PromotionService {
     /**
      * Record promotion usage
      */
-    public PromotionUsage recordPromotionUsage(String promotionCode, Long userId, 
+    public PromotionUsage recordPromotionUsage(String promotionCode, String userId,
                                                  PaymentOrder order, BigDecimal discountAmount) {
         Promotion promotion = promotionRepository.findByCode(promotionCode)
                 .orElseThrow(() -> new RuntimeException("Promotion not found: " + promotionCode));
@@ -72,7 +72,7 @@ public class PromotionService {
     /**
      * Validate promotion
      */
-    private void validatePromotion(Promotion promotion, Long userId, BigDecimal orderAmount) {
+    private void validatePromotion(Promotion promotion, String userId, BigDecimal orderAmount) {
         LocalDateTime now = LocalDateTime.now();
         
         // Check if active
@@ -154,7 +154,7 @@ public class PromotionService {
     /**
      * Get user's promotion usage history
      */
-    public List<PromotionUsage> getUserPromotionUsages(Long userId) {
+    public List<PromotionUsage> getUserPromotionUsages(String userId) {
         return usageRepository.findByUserId(userId);
     }
 }

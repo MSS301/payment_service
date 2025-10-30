@@ -20,5 +20,5 @@ public class CreateOrderRequest {
     
     private String promotionCode;
     
-    private Long userId; // Set from authentication context
+    private String userId; // Set from authentication context
 }

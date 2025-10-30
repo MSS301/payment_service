@@ -9,6 +9,6 @@ import java.util.List;
 @Repository
 public interface PromotionUsageRepository extends JpaRepository<PromotionUsage, Long> {
     List<PromotionUsage> findByPromotionId(Long promotionId);
-    List<PromotionUsage> findByUserId(Long userId);
-    int countByPromotionIdAndUserId(Long promotionId, Long userId);
+    List<PromotionUsage> findByUserId(String userId);
+    int countByPromotionIdAndUserId(Long promotionId, String userId);
 }

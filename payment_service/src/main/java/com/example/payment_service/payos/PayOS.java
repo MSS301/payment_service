@@ -9,6 +9,7 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 
 /**
  * PayOS - Main class để tương tác với PayOS API
@@ -29,7 +30,11 @@ public class PayOS {
         this.clientId = clientId;
         this.apiKey = apiKey;
         this.checksumKey = checksumKey;
-        this.httpClient = new OkHttpClient();
+        this.httpClient = new OkHttpClient.Builder()
+                .connectTimeout(10, TimeUnit.SECONDS)
+                .writeTimeout(10, TimeUnit.SECONDS)
+                .readTimeout(30, TimeUnit.SECONDS)
+                .build();
         this.gson = new GsonBuilder().create();
     }
     
@@ -47,12 +52,16 @@ public class PayOS {
             requestBody.put("cancelUrl", paymentData.getCancelUrl());
             requestBody.put("returnUrl", paymentData.getReturnUrl());
             
-            // Generate signature
+            log.debug("Creating payment link for orderCode: {}, amount: {}",
+                    paymentData.getOrderCode(), paymentData.getAmount());
+
+            // Generate signature - only on specific fields
             String signature = generateSignature(requestBody);
             requestBody.put("signature", signature);
             
             String json = gson.toJson(requestBody);
-            
+            log.debug("PayOS request body: {}", json);
+
             Request request = new Request.Builder()
                     .url(PAYOS_API_URL)
                     .post(RequestBody.create(json, JSON))
@@ -62,18 +71,30 @@ public class PayOS {
                     .build();
             
             try (Response response = httpClient.newCall(request).execute()) {
-                if (!response.isSuccessful()) {
-                    String errorBody = response.body() != null ? response.body().string() : "Unknown error";
-                    log.error("PayOS API error: {} - {}", response.code(), errorBody);
-                    throw new Exception("PayOS API error: " + response.code() + " - " + errorBody);
-                }
-                
                 String responseBody = response.body().string();
                 log.debug("PayOS createPaymentLink response: {}", responseBody);
                 
+                if (!response.isSuccessful()) {
+                    log.error("PayOS API error: {} - {}", response.code(), responseBody);
+                    throw new Exception("PayOS API error: " + response.code() + " - " + responseBody);
+                }
+
                 Map<String, Object> responseMap = gson.fromJson(responseBody, Map.class);
+                String code = (String) responseMap.get("code");
+                String desc = (String) responseMap.get("desc");
+
+                // Check if request was successful
+                if (!"00".equals(code)) {
+                    log.error("PayOS returned error code: {} - {}", code, desc);
+                    throw new Exception("PayOS error: " + code + " - " + desc);
+                }
+
                 Map<String, Object> data = (Map<String, Object>) responseMap.get("data");
-                
+                if (data == null) {
+                    log.error("PayOS response data is null. Response: {}", responseBody);
+                    throw new Exception("PayOS response data is null: " + desc);
+                }
+
                 return CheckoutResponseData.builder()
                         .bin((String) data.get("bin"))
                         .accountNumber((String) data.get("accountNumber"))
@@ -263,17 +284,26 @@ public class PayOS {
     
     /**
      * Generate signature cho request
+     * PayOS signature format: amount={amount}&cancelUrl={cancelUrl}&description={description}&orderCode={orderCode}&returnUrl={returnUrl}
+     * Note: items should not be included in signature calculation
      */
     private String generateSignature(Map<String, Object> data) throws Exception {
         try {
-            // Sort keys
-            TreeMap<String, Object> sortedData = new TreeMap<>(data);
-            StringBuilder signatureData = new StringBuilder();
-            
-            sortedData.forEach((key, value) -> {
-                if (value != null && !key.equals("signature")) {
-                    signatureData.append(key).append("=").append(value).append("&");
+            // PayOS only requires these fields for signature: amount, cancelUrl, description, orderCode, returnUrl
+            // Items should NOT be included in signature calculation
+            TreeMap<String, Object> sortedData = new TreeMap<>();
+
+            // Only include fields that PayOS uses for signature calculation
+            String[] signatureFields = {"amount", "cancelUrl", "description", "orderCode", "returnUrl"};
+            for (String field : signatureFields) {
+                if (data.containsKey(field) && data.get(field) != null) {
+                    sortedData.put(field, data.get(field));
                 }
+            }
+
+            StringBuilder signatureData = new StringBuilder();
+            sortedData.forEach((key, value) -> {
+                signatureData.append(key).append("=").append(value).append("&");
             });
             
             // Remove last &
@@ -281,6 +311,8 @@ public class PayOS {
                 signatureData.setLength(signatureData.length() - 1);
             }
             
+            log.debug("Signature data string: {}", signatureData.toString());
+
             // Generate HMAC SHA256
             Mac sha256_HMAC = Mac.getInstance("HmacSHA256");
             SecretKeySpec secret_key = new SecretKeySpec(
@@ -299,8 +331,11 @@ public class PayOS {
                 hexString.append(hex);
             }
             
-            return hexString.toString();
-            
+            String signature = hexString.toString();
+            log.debug("Generated signature: {}", signature);
+
+            return signature;
+
         } catch (Exception e) {
             log.error("Error generating signature: ", e);
             throw e;

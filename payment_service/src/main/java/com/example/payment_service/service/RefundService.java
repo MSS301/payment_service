@@ -26,7 +26,7 @@ public class RefundService {
     /**
      * Create a refund request for a payment
      */
-    public PaymentRefund createRefund(String transactionCode, String reason, Long initiatedBy) {
+    public PaymentRefund createRefund(String transactionCode, String reason, String initiatedBy) {
         Payment payment = paymentRepository.findByTransactionCode(transactionCode)
                 .orElseThrow(() -> new PaymentNotFoundException("Payment not found: " + transactionCode));
         

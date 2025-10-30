@@ -38,9 +38,8 @@ public class PromotionController {
             @PathVariable String code,
             @Valid @RequestBody ValidatePromotionRequest request,
             @Parameter(description = "User ID from authentication token")
-            @RequestHeader(value = "X-User-ID", required = false) Long userId
+            @RequestHeader(value = "X-User-ID", required = false) String userId
     ) {
-        userId = userId != null ? userId : 1L; // TODO: Get from JWT auth context
         log.info("Validating promotion: {} for user: {}, amount: {}", code, userId, request.getAmount());
         
         try {
