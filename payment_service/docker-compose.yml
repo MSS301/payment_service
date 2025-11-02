@@ -15,9 +15,18 @@ services:
       - PAYOS_CLIENT_ID=${PAYOS_CLIENT_ID}
       - PAYOS_API_KEY=${PAYOS_API_KEY}
       - PAYOS_CHECKSUM_KEY=${PAYOS_CHECKSUM_KEY}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8084/payment/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
     depends_on:
-      - payment-db
-      - kafka
+      payment-db:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
     networks:
       - microservices-network
 
@@ -28,7 +37,21 @@ services:
     environment:
       MYSQL_DATABASE: payment_service_db
       MYSQL_ROOT_PASSWORD: password
-    volumes:
+    healthcheck:
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-ppassword"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+      zookeeper:
+        condition: service_healthy
       - payment_db_data:/var/lib/mysql
     networks:
       - microservices-network
@@ -36,6 +59,13 @@ services:
   zookeeper:
     image: confluentinc/cp-zookeeper:latest
     environment:
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+    restart: unless-stopped
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
     networks:
