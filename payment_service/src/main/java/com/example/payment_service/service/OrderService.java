@@ -148,29 +148,24 @@ public class OrderService {
 
             payment = paymentRepository.save(payment);
             
-            // 7. Record promotion usage if applied
+            // 7. Record promotion usage if applied (commented out to prevent transaction rollback)
+            // TODO: Move to @TransactionalEventListener after commit
             if (discountAmount.compareTo(BigDecimal.ZERO) > 0 && request.getPromotionCode() != null) {
-                try {
-                    promotionService.recordPromotionUsage(
-                            request.getPromotionCode(),
-                            request.getUserId(),
-                            order,
-                            discountAmount
-                    );
-                    
-                    // Publish promotion used event
-                    publishPromotionUsedEvent(request.getUserId(), request.getPromotionCode(), discountAmount);
-                } catch (Exception e) {
-                    log.error("Failed to record promotion usage: {}", e.getMessage());
-                }
+                promotionService.recordPromotionUsage(
+                        request.getPromotionCode(),
+                        request.getUserId(),
+                        order,
+                        discountAmount
+                );
+
+//                publishPromotionUsedEvent(request.getUserId(), request.getPromotionCode(), discountAmount);
             }
-            
-            // 8. Publish order created event
-            publishOrderCreatedEvent(order, pkg);
-            
-            // 9. Publish payment initiated event
-            publishPaymentInitiatedEvent(payment, order, pkg);
-            
+
+            // 8-9. Event publishing commented out to prevent transaction rollback
+            // TODO: Use @TransactionalEventListener pattern for non-critical events
+//            publishOrderCreatedEvent(order, pkg);
+//            publishPaymentInitiatedEvent(payment, order, pkg);
+
             log.info("Order created: orderCode={}, amount={}, paymentUrl={}", 
                     orderCode, finalAmount, paymentUrl);
             
@@ -203,10 +198,23 @@ public class OrderService {
             Payment payment = payments.get(0);
             if ("PENDING".equals(payment.getStatus()) && payment.getProviderTransactionId() != null) {
                 try {
-                    PaymentLinkData linkData = payOS.getPaymentLinkInformation(
-                            Long.parseLong(payment.getProviderTransactionId())
-                    );
-                    paymentUrl = linkData.getCheckoutUrl();
+                    // Try to parse as Long only if it's a numeric value
+                    Long paymentLinkId = null;
+                    String providerTxnId = payment.getProviderTransactionId();
+
+                    // Check if it's a numeric value (PayOS payment link ID)
+                    if (providerTxnId.matches("\\d+")) {
+                        paymentLinkId = Long.parseLong(providerTxnId);
+                    } else {
+                        // If it's not numeric, skip getting payment URL
+                        // This can happen if webhook already updated with order code string
+                        log.debug("Provider transaction ID is not numeric: {}", providerTxnId);
+                    }
+
+                    if (paymentLinkId != null) {
+                        PaymentLinkData linkData = payOS.getPaymentLinkInformation(paymentLinkId);
+                        paymentUrl = linkData.getCheckoutUrl();
+                    }
                 } catch (Exception e) {
                     log.warn("Failed to get payment URL: {}", e.getMessage());
                 }
@@ -262,10 +270,16 @@ public class OrderService {
                 // Cancel PayOS payment link if exists
                 if (payment.getProviderTransactionId() != null) {
                     try {
-                        payOS.cancelPaymentLink(
-                                Long.parseLong(payment.getProviderTransactionId()),
-                                "User cancelled order"
-                        );
+                        // Only try to cancel if provider transaction ID is numeric (PayOS payment link ID)
+                        String providerTxnId = payment.getProviderTransactionId();
+                        if (providerTxnId.matches("\\d+")) {
+                            payOS.cancelPaymentLink(
+                                    Long.parseLong(providerTxnId),
+                                    "User cancelled order"
+                            );
+                        } else {
+                            log.debug("Skipping PayOS cancel for non-numeric provider transaction ID: {}", providerTxnId);
+                        }
                     } catch (Exception e) {
                         log.error("Failed to cancel PayOS payment: {}", e.getMessage());
                     }
@@ -306,45 +320,29 @@ public class OrderService {
     // ==================== Event Publishers ====================
     
     private void publishOrderCreatedEvent(PaymentOrder order, Package pkg) {
-        try {
-            eventPublisher.publishOrderCreated(
-                    order.getId(), 
-                    order.getUserId(), 
-                    order.getFinalAmount(), 
-                    pkg.getId()
-            );
-        } catch (Exception e) {
-            log.error("Failed to publish order created event: {}", e.getMessage());
-        }
+        eventPublisher.publishOrderCreated(
+                order.getId(),
+                order.getUserId(),
+                order.getFinalAmount(),
+                pkg.getId()
+        );
     }
     
     private void publishPaymentInitiatedEvent(Payment payment, PaymentOrder order, Package pkg) {
-        try {
-            eventPublisher.publishPaymentInitiated(
-                    payment.getId(), 
-                    order.getId(), 
-                    order.getUserId(), 
-                    payment.getAmount(), 
-                    pkg.getCredits()
-            );
-        } catch (Exception e) {
-            log.error("Failed to publish payment initiated event: {}", e.getMessage());
-        }
+        eventPublisher.publishPaymentInitiated(
+                payment.getId(),
+                order.getId(),
+                order.getUserId(),
+                payment.getAmount(),
+                pkg.getCredits()
+        );
     }
     
     private void publishOrderExpiredEvent(PaymentOrder order) {
-        try {
-            eventPublisher.publishOrderExpired(order.getId(), order.getUserId());
-        } catch (Exception e) {
-            log.error("Failed to publish order expired event: {}", e.getMessage());
-        }
+        eventPublisher.publishOrderExpired(order.getId(), order.getUserId());
     }
     
     private void publishPromotionUsedEvent(String userId, String promotionCode, BigDecimal discount) {
-        try {
-            eventPublisher.publishPromotionUsed(userId, promotionCode, discount);
-        } catch (Exception e) {
-            log.error("Failed to publish promotion used event: {}", e.getMessage());
-        }
+        eventPublisher.publishPromotionUsed(userId, promotionCode, discount);
     }
 }

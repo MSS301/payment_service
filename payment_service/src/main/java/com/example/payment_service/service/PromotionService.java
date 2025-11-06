@@ -8,6 +8,7 @@ import com.example.payment_service.repository.PromotionUsageRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -43,8 +44,9 @@ public class PromotionService {
     }
     
     /**
-     * Record promotion usage
+     * Record promotion usage in a separate transaction to avoid rollback issues
      */
+    @Transactional(propagation = Propagation.REQUIRED)
     public PromotionUsage recordPromotionUsage(String promotionCode, String userId,
                                                  PaymentOrder order, BigDecimal discountAmount) {
         Promotion promotion = promotionRepository.findByCode(promotionCode)

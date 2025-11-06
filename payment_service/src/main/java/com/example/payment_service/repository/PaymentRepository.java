@@ -33,4 +33,9 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
     
     @Query("SELECT p FROM Payment p WHERE p.createdAt BETWEEN :startDate AND :endDate")
     List<Payment> findPaymentsByDateRange(@Param("startDate") LocalDateTime startDate, @Param("endDate") LocalDateTime endDate);
+
+    // Saga Pattern - Timeout handling
+    List<Payment> findByStatusAndUpdatedAtBefore(String status, LocalDateTime cutoffTime);
+
+    List<Payment> findByStatusAndCreatedAtAfter(String status, LocalDateTime after);
 }

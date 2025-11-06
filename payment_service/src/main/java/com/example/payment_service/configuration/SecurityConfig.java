@@ -34,9 +34,10 @@ public class SecurityConfig {
             "/swagger-ui.html",
             "/actuator/health",
             // Payment webhooks must be public for external services
-            "/payment/webhook",
-            "/payment/return",
-            "/payment/cancel"
+            "/webhooks/**",           // All webhook endpoints
+            "/payment/webhook",       // Legacy webhook endpoint
+            "/payment/return",        // PayOS return URL
+            "/payment/cancel"         // PayOS cancel URL
     };
 
     @Bean

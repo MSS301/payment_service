@@ -1,5 +1,7 @@
 package com.example.payment_service.service.impl;
 
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.retry.annotation.Retry;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 
@@ -18,6 +20,7 @@ import lombok.extern.slf4j.Slf4j;
 /**
  * Email service implementation for sending notifications to users
  * Follows auth_service email implementation pattern with ObjectProvider for optional mail configuration
+ * Enhanced with Circuit Breaker pattern for email service resilience
  */
 @Service
 @RequiredArgsConstructor
@@ -28,6 +31,8 @@ public class EmailServiceImpl implements EmailService {
     ObjectProvider<JavaMailSender> mailSenderProvider;
 
     @Override
+    @CircuitBreaker(name = "email-service", fallbackMethod = "sendEmailFallback")
+    @Retry(name = "email-service")
     public void sendWelcomeBonusEmail(String to, String username) {
         try {
             JavaMailSender mailSender = mailSenderProvider.getIfAvailable();
@@ -312,5 +317,19 @@ public class EmailServiceImpl implements EmailService {
                 + "</div>"
                 + "</body>"
                 + "</html>";
+    }
+
+    /**
+     * Fallback method for email sending failures
+     * Logs the failure and continues gracefully without interrupting the main flow
+     */
+    private void sendEmailFallback(String to, String username, Exception ex) {
+        log.error("Email service is unavailable. Failed to send email to: {}. Error: {}",
+                to, ex.getMessage());
+        log.warn("Email will not be sent. Consider implementing a retry queue for failed emails.");
+        // In production, you might want to:
+        // 1. Store failed email in database for later retry
+        // 2. Send to a message queue for async retry
+        // 3. Alert monitoring system
     }
 }

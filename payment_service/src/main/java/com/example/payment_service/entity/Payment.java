@@ -32,7 +32,7 @@ public class Payment {
     
     @Column(name = "provider_transaction_id", length = 255)
     private String providerTransactionId;
-    
+
     @Column(name = "amount", nullable = false, precision = 15, scale = 2)
     private BigDecimal amount;
     

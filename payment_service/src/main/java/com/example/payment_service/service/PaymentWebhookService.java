@@ -17,6 +17,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
@@ -56,8 +57,16 @@ public class PaymentWebhookService {
             // Update payment if status changed
             if (!oldStatus.equals(newStatus)) {
                 payment.setStatus(newStatus);
-                payment.setProviderTransactionId(String.valueOf(webhookData.getOrderCode()));
-                
+
+                // Only update providerTransactionId if not already set or if paymentLinkId is provided
+                if (webhookData.getPaymentLinkId() != null && !webhookData.getPaymentLinkId().isEmpty()) {
+                    payment.setProviderTransactionId(webhookData.getPaymentLinkId());
+                } else if (payment.getProviderTransactionId() == null || payment.getProviderTransactionId().isEmpty()) {
+                    // Fallback to orderCode only if providerTransactionId is not set
+                    payment.setProviderTransactionId(String.valueOf(webhookData.getOrderCode()));
+                }
+                // Otherwise, keep the existing providerTransactionId (PayOS payment link ID)
+
                 if ("SUCCESS".equals(newStatus)) {
                     handlePaymentSuccess(payment, webhookData);
                 } else if ("FAILED".equals(newStatus) || "CANCELLED".equals(newStatus)) {
@@ -125,19 +134,50 @@ public class PaymentWebhookService {
      * Find payment from webhook data
      */
     private Payment findPaymentFromWebhook(WebhookData webhookData) {
-        // Try to find by provider transaction ID
-        String orderCode = String.valueOf(webhookData.getOrderCode());
-        
-        // Search by provider transaction ID first
-        return paymentRepository.findByProviderTransactionId(orderCode)
-                .or(() -> {
-                    // If not found, try to find recent pending payment for this order
-                    return paymentRepository.findByStatus("PENDING").stream()
-                            .filter(p -> p.getProviderTransactionId() != null && 
-                                       p.getProviderTransactionId().equals(orderCode))
-                            .findFirst();
-                })
-                .orElse(null);
+        // Try to find by payment link ID first (most reliable)
+        if (webhookData.getPaymentLinkId() != null && !webhookData.getPaymentLinkId().isEmpty()) {
+            Optional<Payment> payment = paymentRepository.findByProviderTransactionId(webhookData.getPaymentLinkId());
+            if (payment.isPresent()) {
+                log.debug("Found payment by paymentLinkId: {}", webhookData.getPaymentLinkId());
+                return payment.get();
+            }
+        }
+
+        // Fallback: Try to find by order code
+        if (webhookData.getOrderCode() != null) {
+            String orderCode = String.valueOf(webhookData.getOrderCode());
+            Optional<Payment> payment = paymentRepository.findByProviderTransactionId(orderCode);
+            if (payment.isPresent()) {
+                log.debug("Found payment by orderCode: {}", orderCode);
+                return payment.get();
+            }
+        }
+
+        // Last resort: Find pending payment that matches the description or amount
+        if (webhookData.getOrderCode() != null && webhookData.getAmount() != null) {
+            log.debug("Searching for pending payment by orderCode substring and amount");
+            String orderCodeStr = String.valueOf(webhookData.getOrderCode());
+
+            return paymentRepository.findByStatus("PENDING").stream()
+                    .filter(p -> {
+                        // Check if transaction code contains part of order code
+                        boolean codeMatch = p.getTransactionCode() != null &&
+                                          orderCodeStr.length() >= 8 &&
+                                          p.getTransactionCode().contains(orderCodeStr.substring(0, 8));
+
+                        // Check if amount matches (convert to same scale)
+                        boolean amountMatch = p.getAmount() != null &&
+                                            p.getAmount().multiply(new java.math.BigDecimal("100")).intValue() == webhookData.getAmount();
+
+                        return codeMatch || amountMatch;
+                    })
+                    .findFirst()
+                    .orElse(null);
+        }
+
+        log.warn("Payment not found for webhook - paymentLinkId: {}, orderCode: {}",
+                webhookData.getPaymentLinkId(), webhookData.getOrderCode());
+        return null;
     }
     
     /**
@@ -168,21 +208,18 @@ public class PaymentWebhookService {
     
     private void publishPaymentCompletedEvent(Payment payment, PaymentOrder order) {
         try {
-            Integer credits = order != null && order.getPackageInfo() != null 
-                    ? order.getPackageInfo().getCredits() : 0;
-            Integer bonusCredits = order != null && order.getPackageInfo() != null 
-                    ? order.getPackageInfo().getBonusCredits() : 0;
-            
             eventPublisher.publishPaymentCompleted(
                     payment.getId(),
                     order != null ? order.getId() : null,
                     order != null ? order.getUserId() : null,
                     payment.getAmount(),
-                    credits.toString(),
-                    bonusCredits.toString()
+                    payment.getCurrency() != null ? payment.getCurrency() : "VND",
+                    "PayOS"  // Payment method
             );
+            log.info("Published payment.completed event to outbox for payment: {}", payment.getId());
         } catch (Exception e) {
             log.error("Failed to publish payment completed event: {}", e.getMessage());
+            // Don't rethrow - payment already succeeded, event will retry via outbox
         }
     }
     
