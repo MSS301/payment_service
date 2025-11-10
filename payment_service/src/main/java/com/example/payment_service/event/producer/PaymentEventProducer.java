@@ -90,7 +90,7 @@ public class PaymentEventProducer {
      */
     @Transactional
     public void publishPaymentCompleted(Long paymentId, Long orderId, String userId, BigDecimal amount,
-                                       String currency, String paymentMethod) {
+                                       String currency, String paymentMethod, Integer credits) {
         try {
             PaymentCompletedEvent event = PaymentCompletedEvent.builder()
                     .paymentId(paymentId)
@@ -100,6 +100,7 @@ public class PaymentEventProducer {
                     .currency(currency)
                     .paymentMethod(paymentMethod)
                     .timestamp(LocalDateTime.now())
+                    .credits(credits)
                     .build();
 
             // Save to outbox table atomically with payment transaction

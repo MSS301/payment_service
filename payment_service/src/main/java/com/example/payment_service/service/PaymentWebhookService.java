@@ -215,6 +215,7 @@ public class PaymentWebhookService {
                     payment.getAmount(),
                     payment.getCurrency() != null ? payment.getCurrency() : "VND",
                     "PayOS"  // Payment method
+                    , order != null ? order.getPackageInfo().getCredits() : 0
             );
             log.info("Published payment.completed event to outbox for payment: {}", payment.getId());
         } catch (Exception e) {

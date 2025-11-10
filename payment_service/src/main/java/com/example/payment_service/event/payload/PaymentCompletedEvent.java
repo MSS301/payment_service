@@ -36,4 +36,7 @@ public class PaymentCompletedEvent {
     
     @JsonProperty("timestamp")
     private LocalDateTime timestamp;
+
+    @JsonProperty("credits")
+    private Integer credits;
 }
