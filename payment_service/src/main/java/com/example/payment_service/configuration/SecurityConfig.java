@@ -35,6 +35,9 @@ public class SecurityConfig {
             "/actuator/health",
             // Payment webhooks must be public for external services
             "/webhooks/**",           // All webhook endpoints
+            "/webhook",               // Legacy webhook endpoint (no /payment prefix)
+            "/return",                // PayOS return URL (no /payment prefix)
+            "/cancel",                // PayOS cancel URL (no /payment prefix)
             "/payment/webhook",       // Legacy webhook endpoint
             "/payment/return",        // PayOS return URL
             "/payment/cancel"         // PayOS cancel URL
@@ -45,17 +48,17 @@ public class SecurityConfig {
         http
                 .csrf(AbstractHttpConfigurer::disable)
                 .authorizeHttpRequests(auth -> auth
-                        // Public endpoints
+                        // Public endpoints - MUST BE FIRST
                         .requestMatchers(PUBLIC_ENDPOINTS).permitAll()
 
                         // Admin endpoints
-                        .requestMatchers("/payment/admin/**").hasRole("ADMIN")
+                        .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         
-                        // Authenticated endpoints
-                        .requestMatchers(HttpMethod.POST, "/payment/**").authenticated()
-                        .requestMatchers(HttpMethod.GET, "/payment/**").authenticated()
-                        .requestMatchers(HttpMethod.PUT, "/payment/**").authenticated()
-                        .requestMatchers(HttpMethod.DELETE, "/payment/**").authenticated()
+                        // Authenticated API endpoints (only /api/** paths)
+                        .requestMatchers(HttpMethod.POST, "/api/**").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/**").authenticated()
+                        .requestMatchers(HttpMethod.PUT, "/api/**").authenticated()
+                        .requestMatchers(HttpMethod.DELETE, "/api/**").authenticated()
 
                         // All other requests require authentication
                         .anyRequest().authenticated()
