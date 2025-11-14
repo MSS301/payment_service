@@ -27,7 +27,6 @@ public class PaymentWebhookService {
     
     private final PaymentRepository paymentRepository;
     private final PaymentOrderRepository orderRepository;
-    private final InvoiceService invoiceService;
     private final PayOS payOS;
     private final PaymentEventProducer eventPublisher;
     
@@ -98,14 +97,6 @@ public class PaymentWebhookService {
         if (order != null && "PENDING".equals(order.getStatus())) {
             order.setStatus("COMPLETED");
             orderRepository.save(order);
-        }
-        
-        // Create invoice
-        try {
-            invoiceService.createInvoice(payment);
-            log.info("Invoice created for payment: {}", payment.getTransactionCode());
-        } catch (Exception e) {
-            log.error("Failed to create invoice: {}", e.getMessage());
         }
         
         // Publish payment completed event
